@@ -8,9 +8,9 @@ namespace WebCrawler
 {
     public class UserInterface
     {
-        public static void CrawlFromSeed(string seedURL, bool DepthFirst)
+        public static void CrawlFromSeed(string seedURL, bool DepthFirst, bool SameDomainOnly)
         {
-            Model.Crawler crawler = new Model.Crawler(seedURL,100, DepthFirst);
+            Model.Crawler crawler = new Model.Crawler(seedURL,100, DepthFirst, SameDomainOnly);
 
 
         }

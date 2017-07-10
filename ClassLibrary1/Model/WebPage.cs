@@ -9,6 +9,7 @@ namespace WebCrawler.Model
 {
     internal class WebPage
     {
+
         public string URL { get; set; }
         public string HTMLString { get; set; }
         //public HTMLFile HTMLFile {get;set;}
@@ -24,17 +25,29 @@ namespace WebCrawler.Model
             this.HTMLString = HTMLString;
         }
 
-        internal WebPage(string URL, string HTMLString, string SavePath)
+        internal WebPage(string URL, string HTMLString, string SaveRootPath)
         {
             this.URL = URL;
             this.HTMLString = HTMLString;
 
-            SavePageAsHTMLFile(SavePath);
+            SavePageAsHTMLFile(SaveRootPath);
         }
 
-        private void SavePageAsHTMLFile(string SavePath)
+        private void SavePageAsHTMLFile(string SaveRootPath)
         {
-            File.WriteAllText(SavePath + ".html", this.HTMLString);
+            string cleanSavePath = "";
+
+            try
+            {
+                cleanSavePath = SaveRootPath + Controller.Utils.CleanFileName(this.URL);
+                File.WriteAllText(cleanSavePath + ".html", this.HTMLString);
+            }
+            catch (PathTooLongException ex)
+            {
+                cleanSavePath = SaveRootPath + Guid.NewGuid();
+                File.WriteAllText(cleanSavePath + ".html", this.HTMLString);
+            }
+
         }
     }
 }
