@@ -30,15 +30,13 @@ namespace WebCrawler.Model
             WebPageList = new List<WebPage>();
 
             //Atribui a SeedURL caso passe nas validações
-            if (CheckInputURL(SeedURL))
+            if (CheckInputURLAndDetectDomain(SeedURL))
                 this.SeedURL = SeedURL;
             else
             {
                 Logger.Log("URL inserida inválida!");
                 return;
             }
-
-            this.DetectDomain();
 
             //Insere URL inicial na CrawlFrontier
             CrawlFrontier.Add(new QueuedURL(this.SeedURL, 0));
@@ -53,32 +51,41 @@ namespace WebCrawler.Model
             //Inicia processo de crawling
             Crawl(this.SeedURL);
         }
-
         
-        private void DetectDomain()
+        private bool CheckInputURLAndDetectDomain(string URL)
         {
-            this.DomainName = new Uri(this.SeedURL).Host;
-        }
-        
-        private bool CheckInputURL(string URL)
-        {
-            return true;
+            try
+            {
+                this.DomainName = new Uri(URL).Host;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
+        //Método principal de crawling
         private void Crawl(string URLToCrawl)
         {
             Logger.Log("Iniciando processo de crawl da página #" + (this.WebPageList.Count+1));
 
+            //Pega a página
             string HTMLString = GetPage(URLToCrawl);
 
+            //Adiciona a página à lista de páginas
             WebPageList.Add(new WebPage(URLToCrawl, HTMLString, this.ArchiveRootPath));
 
-            List<string> URLsFound = ScrapeURLs(HTMLString);
+            //Faz a triagem de novas URLs dentro da página baixada (com filtro)
+            List<string> URLsFound = ScrapeURLs(HTMLString, true);
 
-            PrioritizeCrawlFrontier(URLsFound);
+            //Insere as novas URLs na fronteira, de forma priorizada
+            PrioritizeCrawlFrontier(URLsFound,this.DepthFirst);
             
+            //Loga quantas páginas ainda faltam para  completar o processo
             Logger.Log((CrawlFrontier.Count - WebPageList.Count) + " páginas pendentes\n");
 
+            //Chama o próprio método novamente caso atendidas as condições para continuar
             if (CheckConditionsForNextCrawl())
                 Crawl(CurrentHighestPriorityQueuedURL().URL);
             else return;
@@ -102,7 +109,7 @@ namespace WebCrawler.Model
             return html;
         }
 
-        private List<string> ScrapeURLs(string HTMLString)
+        private List<string> ScrapeURLs(string HTMLString, bool Filter)
         {
             List<string> URLsFoundList = new List<string>();
             
@@ -119,10 +126,13 @@ namespace WebCrawler.Model
             }
             
             Logger.Log(URLsFoundList.Count + " novas páginas encontradas\n");
+            
+            if (Filter)
+            {
+                URLsFoundList = FilterScrapedURLs(URLsFoundList);
 
-            URLsFoundList = FilterScrapedURLs(URLsFoundList);
-
-            Logger.Log(URLsFoundList.Count + " restantes após filtro\n");
+                Logger.Log(URLsFoundList.Count + " restantes após filtro\n"); 
+            }
 
             return URLsFoundList;
         }
@@ -137,26 +147,64 @@ namespace WebCrawler.Model
             //Filtro opcional de domínio principal
             if(this.SameDomainOnly)
             output = output.Where(x => x.Contains(this.DomainName)).ToList();
-            
+
+            //Filtro de teste pra tirar as páginas do blog stone para fins de teste
+            //output = output.Where(x => !x.ToLower().Contains("blog")).ToList();
+
             return output;
         }
 
-        private void PrioritizeCrawlFrontier(List<string> NewURLs)
+        private void PrioritizeCrawlFrontier(List<string> NewURLs, bool DepthFirst)
         {
-            foreach(string URL in NewURLs)
+            //Adiciona cada URL nova na fronteira de forma priorizada
+            //Busca em largura
+            if (! DepthFirst)
             {
-                CrawlFrontier.Add(new QueuedURL(URL, CrawlFrontier.Max(x=>x.priority)+1));
+                foreach (string URL in NewURLs)
+                {
+                    CrawlFrontier.Add(new QueuedURL(URL, CrawlFrontier.Max(x => x.priority) + 1));
+                } 
+            }
+            //Busca em profundidade
+            else
+            {
+                //Pega a prioridade do nó pai
+                double RootScore = this.CurrentHighestPriorityQueuedURL().priority;
+                //Pega a prioridad do nó imediatamente mais prioritário
+                double RootCeiling = this.CurrentSecondHighestPriorityQueuedURL().priority;
+
+                foreach (string URL in NewURLs)
+                {
+                    //Divide a diferença entre o score do nó pai e do nó seguinte (com um Epsilon para corrigir) 
+                    //pelo número de elementos na nova lista e soma esse adicional ao score de cada um dos elementos
+                    double URLPriority = ((RootCeiling - RootScore - double.Epsilon) / NewURLs.Count) * (NewURLs.IndexOf(URL) + 1);
+                    
+                    CrawlFrontier.Add(new QueuedURL(URL, URLPriority));
+                }
             }
             
+            //Salva referência da URL de maior prioridade da fronteira
             QueuedURL TopPriorityURL = CurrentHighestPriorityQueuedURL();
 
+            //Joga a URL de maior prioridade para o fim da fila
             TopPriorityURL.priority += CrawlFrontier.Count + 1;
         }
 
         private QueuedURL CurrentHighestPriorityQueuedURL()
         {
-            int minPriority = CrawlFrontier.Min(x => x.priority);
+            double minPriority = CrawlFrontier.Min(x => x.priority);
             return CrawlFrontier.Where(x => x.priority == minPriority).First();
+        }
+        
+        private QueuedURL CurrentSecondHighestPriorityQueuedURL()
+        {
+            double minPriority = CrawlFrontier.Min(x => x.priority);
+            if(minPriority!=0)
+            {
+                double secondMinPriority = CrawlFrontier.Where(x => x.priority != minPriority).Min(x => x.priority);
+                return CrawlFrontier.Where(x => x.priority == secondMinPriority).First();
+            }
+            return new QueuedURL("",1); //Na primeira iteração em que não existe uma segunda URL, retornar score 1
         }
 
         bool CheckConditionsForNextCrawl()
